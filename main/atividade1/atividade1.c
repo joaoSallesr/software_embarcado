@@ -8,8 +8,8 @@ SemaphoreHandle_t xCircularBufferMutex = NULL;
 SemaphoreHandle_t xEmptySlotsSem       = NULL;
 SemaphoreHandle_t xFilledSlotsSem      = NULL;
 
-void atividade1(void) {
-    ESP_LOGI("Atividade 1", "Rodando atividade 1");
+void exercicio1(void) {
+    ESP_LOGI("ATV1", "Rodando exercicio 1");
 
     cb_init();
 
@@ -17,8 +17,24 @@ void atividade1(void) {
     xEmptySlotsSem       = xSemaphoreCreateCounting(BUFFER_SIZE, BUFFER_SIZE);
     xFilledSlotsSem      = xSemaphoreCreateCounting(BUFFER_SIZE, 0);
 
-    xTaskCreatePinnedToCore(task_read, "Read", configMINIMAL_STACK_SIZE * 8, NULL, 10, NULL, 0);
-    xTaskCreatePinnedToCore(task_write, "Write", configMINIMAL_STACK_SIZE * 8, NULL, 10, NULL, 1);
+    xTaskCreatePinnedToCore(task_read, "READ", configMINIMAL_STACK_SIZE * 8, NULL, 10, NULL, 0);
+    xTaskCreatePinnedToCore(task_write, "WRITE", configMINIMAL_STACK_SIZE * 8, NULL, 10, NULL, 1);
+}
+
+void exercicio2(void) {
+    ESP_LOGI("ATV1", "Rodando exercicio 2");
+
+    cb_init();
+
+    xCircularBufferMutex = xSemaphoreCreateMutex();
+    xEmptySlotsSem       = xSemaphoreCreateCounting(BUFFER_SIZE, BUFFER_SIZE);
+    xFilledSlotsSem      = xSemaphoreCreateCounting(BUFFER_SIZE, 0);
+
+    gpio_set_direction(BUTTON_GPIO, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BUTTON_GPIO, GPIO_PULLUP_ONLY);
+
+    xTaskCreatePinnedToCore(task_button, "BUTTON", configMINIMAL_STACK_SIZE * 8, NULL, 10, NULL, 0);
+    xTaskCreatePinnedToCore(task_log, "LOG", configMINIMAL_STACK_SIZE * 8, NULL, 10, NULL, 1);
 }
 
 /* Circular Buffer Implementation */
@@ -60,17 +76,32 @@ bool cb_pop(int *out_data) {
     return true;
 }
 
+void cb_read(int *out_data) {
+    xSemaphoreTake(xFilledSlotsSem, portMAX_DELAY);
+
+    xSemaphoreTake(xCircularBufferMutex, portMAX_DELAY);
+    cb_pop(out_data);
+    xSemaphoreGive(xCircularBufferMutex);
+
+    xSemaphoreGive(xEmptySlotsSem);
+}
+
+void cb_write(int in_data) {
+    xSemaphoreTake(xEmptySlotsSem, portMAX_DELAY);
+
+    xSemaphoreTake(xCircularBufferMutex, portMAX_DELAY);
+    cb_push(in_data);
+    xSemaphoreGive(xCircularBufferMutex);
+
+    xSemaphoreGive(xFilledSlotsSem);
+}
+
 /* Tasks */
 void task_read(void *pvParameters) {
     int out_data;
     while (true) {
-        xSemaphoreTake(xFilledSlotsSem, portMAX_DELAY);
+        cb_read(&out_data);
 
-        xSemaphoreTake(xCircularBufferMutex, portMAX_DELAY);
-        cb_pop(&out_data);
-        xSemaphoreGive(xCircularBufferMutex);
-
-        xSemaphoreGive(xEmptySlotsSem);
         ESP_LOGI("Read", "Data read: %d", out_data);
 
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -80,17 +111,35 @@ void task_read(void *pvParameters) {
 void task_write(void *pvParameters) {
     while (true) {
         for (int i = 0; i < BUFFER_SIZE; i++) {
-            xSemaphoreTake(xEmptySlotsSem, portMAX_DELAY);
-
-            xSemaphoreTake(xCircularBufferMutex, portMAX_DELAY);
-            cb_push(i);
-            xSemaphoreGive(xCircularBufferMutex);
-
-            xSemaphoreGive(xFilledSlotsSem);
+            cb_write(i);
 
             ESP_LOGI("Write", "Data written: %d", i);
 
             vTaskDelay(pdMS_TO_TICKS(200));
         }
+    }
+}
+
+void task_button(void *pvParameters) {
+    int count = 0;
+    while (true) {
+        if (gpio_get_level(BUTTON_GPIO) == 0) {
+            count++;
+
+            cb_write(count);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+void task_log(void *pvParameters) {
+    int out_count;
+    while (true) {
+        cb_read(&out_count);
+
+        ESP_LOGI("LOG", "Button pressed %d times", out_count);
+
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
