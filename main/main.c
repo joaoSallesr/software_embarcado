@@ -1,7 +1,7 @@
-#include "atividade1.h"
+#include "atividade2.h"
 
 void app_main(void) {
     ESP_LOGI("Main", "Inicializando:");
 
-    exercicio1();
+    atv2_ex1();
 }
