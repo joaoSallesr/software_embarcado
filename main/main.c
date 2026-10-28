@@ -1,7 +1,7 @@
-#include "aula17.h"
+#include "atividade4.h"
 
 void app_main(void) {
     ESP_LOGI("Main", "Inicializando:");
 
-    aula17();
+    atividade4();
 }
